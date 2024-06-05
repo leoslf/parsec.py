@@ -12,12 +12,15 @@ try:
 except ImportError:
     from inspect import getargspec as getargspec
 
+import logging
 import operator
 import re
 import inspect
 import warnings
 from functools import reduce, wraps, partial
 from collections import namedtuple
+
+logger = logging.getLogger(__name__)
 
 ##########################################################################
 # Text.Parsec.Error
@@ -425,7 +428,8 @@ def try_choices_longest(*choices):
             return Value.failure(index, 'does not match with any choices {}'.format(list(zip(choices, results))))
 
         successful_results = list(filter(lambda result: result.status, results))
-        return max(successful_results, key=lambda result: result.index)
+        logger.debug(successful_results)
+        return max(successful_results, key=lambda result: result.index - index)
     return longest
 
 def skip(pa, pb):
