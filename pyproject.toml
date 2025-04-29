@@ -1,3 +1,50 @@
+[project]
+name = "parsec"
+version = "3.17.0"
+description = "parser combinator."
+readme = "README.rst"
+authors = [
+  { name = "He Tao", email = "sighingnow@gmail.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+  'enum34; python_version < "3.5"',
+  "setuptools",
+]
+
+[project.license]
+file = "LICENSE"
+
+[project.urls]
+Repository = "https://github.com/sighingnow/parsec.py"
+Documentation = "https://pythonhosted.org/parsec/"
+Source = "https://github.com/sighingnow/parsec.py"
+Tracker = "https://github.com/sighingnow/parsec.py/issues"
+
+[project.optional-dependencies]
+type-check = [
+  "mypy ~= 2.3.0",
+]
+test = [
+  "coverage",
+]
+dev = [
+  "parsec[type-check]",
+  "parsec[test]",
+]
+all = [
+  "parsec[dev]",
+]
+
 [build-system]
-requires = ['setuptools', 'wheel']
-build-backend = 'setuptools.build_meta'
+requires = ["setuptools >= 61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.mypy]
+install_types = true
+ignore_missing_imports = true
+check_untyped_defs = true
+
