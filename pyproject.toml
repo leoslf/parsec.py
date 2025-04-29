@@ -1,21 +1,21 @@
-[project]
-name = "parsec"
-version = "3.17.0"
-description = "parser combinator."
-long_description = "A universal Python parser combinator library inspired by Parsec library of Haskell."
-readme = "README.md"
-authors = [
-    { name = "He Tao", email = "sighingnow@gmail.com" },
-]
-url = "https://github.com/sighingnow/parsec.py"
-requires-python = ">=3.12"
+# [project]
+# name = "parsec"
+# version = "3.17.0"
+# description = "parser combinator."
+# long_description = "A universal Python parser combinator library inspired by Parsec library of Haskell."
+# readme = "README.md"
+# authors = [
+#     { name = "He Tao", email = "sighingnow@gmail.com" },
+# ]
+# url = "https://github.com/sighingnow/parsec.py"
+# requires-python = ">=3.12"
 
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-include-package-data = true
+# [tool.setuptools]
+# include-package-data = true
 
 [tool.poetry]
 package-mode = false
