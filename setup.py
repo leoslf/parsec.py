@@ -45,7 +45,7 @@ setup(
     ],
     extras_require={
         'dev': [
-            'mypy',
+            'mypy ~= 1.15.0',
             'coverage',
         ],
     },
