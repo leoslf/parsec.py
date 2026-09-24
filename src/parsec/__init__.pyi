@@ -175,9 +175,11 @@ def times(
 ) -> Parser[CA.Sequence[_U]]: ...
 def count(p: Parser[_U], n: int) -> Parser[CA.Sequence[_U]]: ...
 
-def optional(
-    p: Parser[_U], default_value: T.Optional[_V] = ...
-) -> Parser[_U | _V | None]: ...
+@T.overload
+def optional(p: Parser[_U], default_value: None = None) -> Parser[_U | None]: ...
+@T.overload
+# NOTE: Reuses _U to leverage type inferencing widening
+def optional(p: Parser[_V], default_value: _V) -> Parser[_V]: ...
 
 def many(p: Parser[_U]) -> Parser[CA.Sequence[_U]]: ...
 def many1(p: Parser[_U]) -> Parser[CA.Sequence[_U]]: ...
@@ -265,3 +267,15 @@ if T.TYPE_CHECKING:
     T.assert_type(_inferred, Parser[_A | _B])
 
     _base: Parser[_Base] = _inferred
+
+    # Ensure Literal does not decay to with literal string default in optional()
+    _Literal = T.Literal["foo", "bar"]
+
+    _literal: Parser[_Literal] = try_choices_longest(
+        *(string(literal) for literal in T.get_args(_Literal)),
+    )
+
+    _literal_with_default: Parser[_Literal] = optional(_literal, "bar")
+
+    # Ensure optional[_U]() can implicitly widen _U
+    _widened: Parser[_Literal | T.Literal["123"]] = optional(_literal, "123")
