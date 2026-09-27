@@ -29,17 +29,9 @@ def expected_arguments(callable):
         return 1
     return len(getargspec(callable).args)
 
-class ParseError(RuntimeError):
-    '''Type for parse error.'''
-
-    def __init__(self, expected, text, index):
-        super(ParseError, self).__init__() # compatible with Python 2.
-        self.expected = expected
-        self.text = text
-        self.index = index
-
-    @staticmethod
-    def loc_info(text, index):
+class LocInfo(namedtuple("LocInfo", "line column source_name", defaults=(None,))):
+    @classmethod
+    def from_text(cls, text, index, source_name=None):
         '''Location of `index` in source code `text`.'''
         if index > len(text):
             raise ValueError('Invalid index.')
@@ -48,12 +40,38 @@ class ParseError(RuntimeError):
         else:
             line, last_ln = 0, index
         col = index - (last_ln + 1)
-        return (line, col)
+        return cls(line, col, source_name=source_name)
+
+    def __repr__(self):
+        if self.source_name is not None:
+            return '{}:{}:{}'.format(self.source_name, self.line, self.column)
+
+        return '{}:{}'.format(self.line, self.column)
+
+    def __eq__(self, other):
+        if isinstance(other, tuple):
+            return self[:len(other)] == other
+
+        return super().__eq__(other)
+
+class ParseError(RuntimeError):
+    '''Type for parse error.'''
+
+    def __init__(self, expected, text, index, source_name=None):
+        super(ParseError, self).__init__() # compatible with Python 2.
+        self.expected = expected
+        self.text = text
+        self.index = index
+        self.source_name = source_name
+
+    @staticmethod
+    def loc_info(text, index, source_name=None):
+        return LocInfo.from_text(text, index, source_name=source_name)
 
     def loc(self):
         '''Locate the error position in the source code text.'''
         try:
-            return '{}:{}'.format(*ParseError.loc_info(self.text, self.index))
+            return ParseError.loc_info(self.text, self.index, source_name=self.source_name)
         except ValueError:
             return '<out of bounds index {!r}>'.format(self.index)
 
@@ -129,32 +147,32 @@ class Parser(object):
         '''`fn` is the function to wrap.'''
         self.fn = fn
 
-    def __call__(self, text, index):
+    def __call__(self, text, index, source_name=None):
         '''call wrapped function.'''
-        return self.fn(text, index)
+        return self.fn(text, index, source_name=source_name)
 
     def __repr__(self):
         if hasattr(self.fn, "__name__"):
             return self.fn.__name__
         return super().__repr__()
 
-    def parse(self, text):
+    def parse(self, text, source_name=None):
         '''Parses a given string `text`.'''
-        return self.parse_partial(text)[0]
+        return self.parse_partial(text, source_name=source_name)[0]
 
-    def parse_partial(self, text):
+    def parse_partial(self, text, source_name=None):
         '''Parse the longest possible prefix of a given string.
 
         Return a tuple of the result value and the rest of the string.
 
         If failed, raise a ParseError. '''
-        res = self(text, 0)
+        res = self(text, 0, source_name=source_name)
         if res.status:
             return (res.value, text[res.index:])
         else:
-            raise ParseError(res.expected, text, res.index)
+            raise ParseError(res.expected, text, res.index, source_name=source_name)
 
-    def parse_strict(self, text):
+    def parse_strict(self, text, source_name=None):
         '''Parse the longest possible prefix of the entire given string.
 
         If the parser worked successfully and NONE text was rested, return the
@@ -164,7 +182,7 @@ class Parser(object):
         given text must be used.'''
         # pylint: disable=comparison-with-callable
         # Here the `<` is not comparison.
-        return (self < eof()).parse_partial(text)[0]
+        return (self < eof()).parse_partial(text, source_name=source_name)[0]
 
     def bind(self, fn):
         '''This is the monadic binding operation. Returns a parser which, if
@@ -176,21 +194,21 @@ class Parser(object):
             raise TypeError("can only bind on a function with one or two arguments, fn/{}".format(args_count))
 
         @Parser
-        def bind_parser(text, index):
-            res = self(text, index)
+        def bind_parser(text, index, *, source_name=None):
+            res = self(text, index, source_name=source_name)
             if not res.status:
                 return res
 
-            return (fn(res.value, index) if args_count == 2 else fn(res.value))(text, res.index)
+            return (fn(res.value, index, source_name=source_name) if args_count == 2 else fn(res.value, source_name=source_name))(text, res.index, source_name=source_name)
         return bind_parser
 
     def compose(self, other):
         '''(>>) Sequentially compose two actions, discarding any value produced
         by the first.'''
         @Parser
-        def compose_parser(text, index):
-            res = self(text, index)
-            return res if not res.status else other(text, res.index)
+        def compose_parser(text, index, source_name=None):
+            res = self(text, index, source_name=source_name)
+            return res if not res.status else other(text, res.index, source_name=source_name)
         return compose_parser
 
     def joint(self, *parsers):
@@ -206,9 +224,9 @@ class Parser(object):
 
         NOTICE: without backtrack.'''
         @Parser
-        def choice_parser(text, index):
-            res = self(text, index)
-            return res if res.status or res.index != index else other(text, index)
+        def choice_parser(text, index, source_name=None):
+            res = self(text, index, source_name=source_name)
+            return res if res.status or res.index != index else other(text, index, source_name=source_name)
         return choice_parser
 
     def try_choice(self, other):
@@ -218,20 +236,20 @@ class Parser(object):
         any input, and then parser q is tried.
         '''
         @Parser
-        def try_choice_parser(text, index):
-            res = self(text, index)
-            return res if res.status else other(text, index)
+        def try_choice_parser(text, index, source_name=None):
+            res = self(text, index, source_name=source_name)
+            return res if res.status else other(text, index, source_name=source_name)
         return try_choice_parser
 
     def skip(self, other):
         '''(<<) Ends with a specified parser, and at the end parser consumed the
         end flag.'''
         @Parser
-        def skip_parser(text, index):
-            res = self(text, index)
+        def skip_parser(text, index, source_name=None):
+            res = self(text, index, source_name=source_name)
             if not res.status:
                 return res
-            end = other(text, res.index)
+            end = other(text, res.index, source_name=source_name)
             if end.status:
                 return Value.success(end.index, res.value)
             else:
@@ -242,11 +260,11 @@ class Parser(object):
         '''(<) Ends with a specified parser, and at the end parser hasn't consumed
         any input.'''
         @Parser
-        def ends_with_parser(text, index):
-            res = self(text, index)
+        def ends_with_parser(text, index, source_name=None):
+            res = self(text, index, source_name=source_name)
             if not res.status:
                 return res
-            end = other(text, res.index)
+            end = other(text, res.index, source_name=source_name)
             if end.status:
                 return res
             else:
@@ -256,11 +274,11 @@ class Parser(object):
     def excepts(self, other):
         '''Fail though matched when the consecutive parser `other` success for the rest text.'''
         @Parser
-        def excepts_parser(text, index):
-            res = self(text, index)
+        def excepts_parser(text, index, source_name=None):
+            res = self(text, index, source_name=source_name)
             if not res.status:
                 return res
-            lookahead = other(text, res.index)
+            lookahead = other(text, res.index, source_name=source_name)
             if lookahead.status:
                 return Value.failure(res.index, 'should not be "{}"'.format(lookahead.value))
             else:
@@ -269,7 +287,7 @@ class Parser(object):
 
     def parsecmap(self, fn, star=False):
         '''Returns a parser that transforms the produced value of parser with `fn`.'''
-        def mapper(res):
+        def mapper(res, *, source_name=None):
             # unpack tuple
             result = fn(*res) if star else fn(res)
             return success_with(result, advance=False)
@@ -284,7 +302,7 @@ class Parser(object):
     def parsecapp(self, other):
         '''Returns a parser that applies the produced value of this parser to the produced value of `other`.'''
         # pylint: disable=unnecessary-lambda
-        return self.bind(lambda res: other.parsecmap(lambda x: res(x)))
+        return self.bind(lambda res, *, source_name=None: other.parsecmap(lambda x: res(x)))
 
     def apply(self, other):
         '''Apply the function produced by self on the result of other.
@@ -298,13 +316,15 @@ class Parser(object):
 
     def mark(self):
         '''Mark the line and column information of the result of this parser.'''
-        def pos(text, index):
-            return ParseError.loc_info(text, index)
+        def pos(text, index, source_name=None):
+            return ParseError.loc_info(text, index, source_name=source_name)
 
-        def mark(value, index):
+        def mark(value, index, *, source_name=None):
+            marked_source_name = source_name
+
             @Parser
-            def mark(text, resultant_index):
-                return Value.success(resultant_index, (pos(text, index), value, pos(text, resultant_index)))
+            def mark(text, resultant_index, *, source_name=None):
+                return Value.success(resultant_index, (pos(text, index, source_name=marked_source_name), value, pos(text, resultant_index, source_name=source_name)))
             return mark
 
         return self >= mark
@@ -357,9 +377,9 @@ class Parser(object):
         return self.excepts(other)
 
 
-def parse(p, text, index=0):
+def parse(p, text, index=0, source_name=None):
     '''Parse a string and return the result or raise a ParseError.'''
-    return p.parse(text[index:])
+    return p.parse(text[index:], source_name=source_name)
 
 
 def bind(p, fn):
@@ -375,13 +395,13 @@ def compose(pa, pb):
 def joint(*parsers):
     '''Joint two or more parsers, implements the operator of `(+)`.'''
     @Parser
-    def joint_parser(text, index):
+    def joint_parser(text, index, source_name=None):
         values = []
         prev_v = None
         for p in parsers:
             if prev_v:
                 index = prev_v.index
-            prev_v = v = p(text, index)
+            prev_v = v = p(text, index, source_name=source_name)
             if not v.status:
                 return v
             values.append(v)
@@ -410,8 +430,8 @@ def try_choices_longest(*choices):
         raise TypeError("choices can only be Parsers")
 
     @Parser
-    def longest(text, index):
-        results = list(map(lambda choice: choice(text, index), choices))
+    def longest(text, index, *, source_name=None):
+        results = list(map(lambda choice: choice(text, index, source_name=source_name), choices))
         if all(not result.status for result in results):
             return Value.failure(index, 'does not match with any choices {}'.format(list(zip(choices, results))))
 
@@ -488,19 +508,19 @@ def generate(fn):
 
     @wraps(fn)
     @Parser
-    def generated(text, index):
+    def generated(text, index, source_name=None):
         try:
             iterator, value = fn(), None
             while True:
                 parser = iterator.send(value)
-                res = parser(text, index)
+                res = parser(text, index, source_name=source_name)
                 if not res.status:  # this parser failed.
                     return res
                 value, index = res.value, res.index  # iterate
         except StopIteration as stop:
             endval = stop.value
             if isinstance(endval, Parser):
-                return endval(text, index)
+                return endval(text, index, source_name=source_name)
             else:
                 return Value.success(index, endval)
         except RuntimeError as error:
@@ -508,7 +528,7 @@ def generate(fn):
             if isinstance(stop, StopIteration) and hasattr(stop, "value"): 
                 endval = stop.value
                 if isinstance(endval, Parser):
-                    return endval(text, index)
+                    return endval(text, index, source_name=source_name)
                 else:
                     return Value.success(index, endval)
             # not what we want
@@ -527,10 +547,10 @@ def times(p, mint, maxt=None):
     maxt = maxt if maxt else mint
 
     @Parser
-    def times_parser(text, index):
+    def times_parser(text, index, source_name=None):
         cnt, values, res = 0, [], None
         while cnt < maxt:
-            res = p(text, index)
+            res = p(text, index, source_name=source_name)
             if res.status:
                 if maxt == float('inf') and res.index == index:
                     # TODO: check whether it reaches mint
@@ -556,7 +576,7 @@ def times(p, mint, maxt=None):
                 if cnt >= mint:
                     break  # we already have decent result to return
                 else:
-                    r = p(text, index)
+                    r = p(text, index, source_name=source_name)
                     if index != r.index:  # report error when the parser cannot success with no text
                         return Value.failure(index, "already meets the end, no enough text")
         return Value.success(index, values)
@@ -575,8 +595,8 @@ def optional(p, default_value=None):
     provided None is returned instead.
     '''
     @Parser
-    def optional_parser(text, index):
-        res = p(text, index)
+    def optional_parser(text, index, source_name=None):
+        res = p(text, index, source_name=source_name)
         if res.status:
             return Value.success(res.index, res.value)
         else:
@@ -610,10 +630,10 @@ def separated(p, sep, mint, maxt=None, end=None):
     maxt = maxt if maxt else mint
 
     @Parser
-    def sep_parser(text, index):
+    def sep_parser(text, index, source_name=None):
         cnt, values_index, values, res = 0, index, [], None
         while cnt < maxt:
-            res = p(text, index)
+            res = p(text, index, source_name=source_name)
             if res.status:
                 current_value_index = res.index
                 current_value = res.value
@@ -625,7 +645,7 @@ def separated(p, sep, mint, maxt=None, end=None):
                     return Value.success(values_index, values)
 
             # consume the sep
-            res = sep(text, index)
+            res = sep(text, index, source_name=source_name)
             if res.status:  # `sep` found, consume it (advance index)
                 index = res.index
                 if end in [True, None]:
@@ -692,7 +712,7 @@ def sepEndBy1(p, sep):
 
 def satisfy(predicate, failure=None):
     @Parser
-    def satisfy_parser(text, index=0):
+    def satisfy_parser(text, index=0, source_name=None):
         if index < len(text) and predicate(text[index]):
             return Value.success(index + 1, text[index])
         else:
@@ -730,7 +750,7 @@ def digit():
 def eof():
     '''Parses EOF flag of a string.'''
     @Parser
-    def eof_parser(text, index=0):
+    def eof_parser(text, index=0, source_name=None):
         if index >= len(text):
             return Value.success(index, None)
         else:
@@ -740,7 +760,7 @@ def eof():
 def string(s):
     '''Parses a string.'''
     @Parser
-    def string_parser(text, index=0):
+    def string_parser(text, index=0, source_name=None):
         slen, tlen = len(s), len(text)
         if ''.join(text[index:index + slen]) == s:
             return Value.success(index + slen, s)
@@ -758,7 +778,7 @@ def regex(exp, flags=0):
         exp = re.compile(exp, flags)
 
     @Parser
-    def regex_parser(text, index):
+    def regex_parser(text, index, *, source_name=None):
         if not isinstance(text, str):
             return Value.failure(index, "`regex` combinator only accepts string as input, "
                                  "but got type {!r}, value is {!r}".format(type(text), text))
@@ -784,27 +804,27 @@ def end_of_line():
 ##########################################################################
 
 def success_with(value, advance=False):
-    return Parser(lambda _, index: Value.success(index + int(advance), value))
+    return Parser(lambda _, index, source_name=None: Value.success(index + int(advance), value))
 
 def fail_with(message):
-    return Parser(lambda _, index: Value.failure(index, message))
+    return Parser(lambda _, index, source_name=None: Value.failure(index, message))
 
 def exclude(p, exclude):
     '''Fails parser p if parser `exclude` matches'''
     @Parser
-    def exclude_parser(text, index):
-        res = exclude(text, index)
+    def exclude_parser(text, index, source_name=None):
+        res = exclude(text, index, source_name=source_name)
         if res.status:
             return Value.failure(index, 'something other than {}'.format(res.value))
         else:
-            return p(text, index)
+            return p(text, index, source_name=source_name)
     return exclude_parser
 
 def lookahead(p):
     '''Parses without consuming'''
     @Parser
-    def lookahead_parser(text, index):
-        res = p(text, index)
+    def lookahead_parser(text, index, source_name=None):
+        res = p(text, index, source_name=source_name)
         if res.status:
             return Value.success(index, res.value)
         else:
@@ -815,8 +835,8 @@ def lookahead(p):
 def unit(p):
     '''Converts a parser into a single unit. Only consumes input if the parser succeeds'''
     @Parser
-    def unit_parser(text, index):
-        res = p(text, index)
+    def unit_parser(text, index, source_name=None):
+        res = p(text, index, source_name=source_name)
         if res.status:
             return Value.success(res.index, res.value)
         else:
@@ -840,10 +860,10 @@ def fix(fn):
 
        See also: https://github.com/sighingnow/parsec.py/issues/39.
     '''
-    return (lambda x: x(x))(lambda y: fn(lambda *args: y(y)(*args)))
+    return (lambda x, *, source_name=None: x(x))(lambda y: fn(lambda *args, **kwargs: y(y)(*args, **kwargs)))
 
 def validate(predicate):
-    def validator(value):
+    def validator(value, *, source_name=None):
         if predicate(value):
             return success_with(value, advance=False)
         else:

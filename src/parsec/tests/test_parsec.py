@@ -21,7 +21,7 @@ class ParseErrorTest(unittest.TestCase):
             ParseError.loc_info("", 1)
 
     def test_loc_info_should_use_default_values_when_text_is_not_str(self):
-        self.assertEqual(ParseError.loc_info([0], 0), (0, -1))
+        self.assertEqual(ParseError.loc_info([0], 0), LocInfo(0, -1))
 
     def test_str(self):
         self.assertTrue(str(ParseError("foo bar", "test", 0)))
@@ -102,7 +102,7 @@ class ParsecPrimTest(unittest.TestCase):
     def test_bind(self):
         nonlocals = {'piped': None}
 
-        def binder(x):
+        def binder(x, *, source_name=None):
             nonlocals['piped'] = x
             return string('y')
 
@@ -112,7 +112,7 @@ class ParsecPrimTest(unittest.TestCase):
         self.assertRaises(ParseError, parser.parse, 'x')
 
         with self.assertRaises(TypeError):
-            parser >= (lambda x, y, z: any())
+            parser >= (lambda x, y, z, source_name=None: any())
 
     def test_compose(self):
         parser = string('x') >> string('y')
@@ -198,7 +198,7 @@ class ParsecPrimTest(unittest.TestCase):
 
     def test_map(self):
 
-        def mapfn(p):
+        def mapfn(p, *, source_name=None):
             return p + p
 
         parser = string('x').map(mapfn)
@@ -206,7 +206,7 @@ class ParsecPrimTest(unittest.TestCase):
 
     def test_apply(self):
 
-        def genfn(p):
+        def genfn(p, *, source_name=None):
             return lambda c: 'fn:' + p + c + c
 
         parser = string('x').map(genfn).apply(string('y'))

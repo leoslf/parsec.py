@@ -75,7 +75,7 @@ n2 = Token.T2
 
 def xletter():
     @Parser
-    def letter_parser(text, index=0):
+    def letter_parser(text, index=0, source_name=None):
         if index < len(text) and text[index] in [u, v, w, x, y, z]:
             return Value.success(index + 1, text[index])
         else:
@@ -85,7 +85,7 @@ def xletter():
 
 def xdigit():
     @Parser
-    def digit_parser(text, index=0):
+    def digit_parser(text, index=0, source_name=None):
         if index < len(text) and text[index] in [n0, n1, n2]:
             return Value.success(index + 1, text[index])
         else:
@@ -95,7 +95,7 @@ def xdigit():
 
 def xstring(s):
     @Parser
-    def string_parser(text, index=0):
+    def string_parser(text, index=0, source_name=None):
         slen, tlen = len(s), len(text)
         if text[index:index + slen] == s:
             return Value.success(index + slen, s)
