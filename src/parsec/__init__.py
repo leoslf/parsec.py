@@ -852,6 +852,17 @@ def between(open, close, parser):
         return results
     return between_parser
 
+def match(p):
+    '''Returns the consumed input and the result of the given parser'''
+    @Parser
+    def match(text, index, source_name=None):
+        res = p(text, index, source_name=source_name)
+        if res.status:
+            consumed = text[index:res.index]
+            return Value.success(res.index, (consumed, res.value))
+        return res
+    return match
+
 def fix(fn):
     '''Allow recursive parser using the Y combinator trick.
 

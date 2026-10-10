@@ -423,6 +423,11 @@ class ParsecCombinatorTest(unittest.TestCase):
         self.assertRaises(ParseError, parser.parse, ")")
         self.assertRaises(ParseError, parser.parse, ")(")
 
+    def test_match(self):
+        parser = match(string("foo"))
+        self.assertEqual(parser.parse("foo"), ("foo", "foo"))
+        self.assertRaises(ParseError, parser.parse, "")
+
     def test_fix(self):
         @Parser
         @fix
